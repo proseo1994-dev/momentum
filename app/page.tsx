@@ -1,417 +1,373 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────
-// Momentum — app/page.tsx
-// Budget mensuel + simulateur "Puis-je me le permettre ?"
-//
-// Stack : Next.js 14 App Router · React · Tailwind CSS
-// Pas de backend, pas d'auth, pas de sync bancaire.
-// Tout l'état vit dans useState — simple et lisible.
+// Momentum — app/page.tsx  v3 "Clarté au lever du jour"
+// Thème clair ivoire · Fraunces display · DM Sans corps
+// Scroll vertical · Hero safe-to-spend dominant
+// Palette vert forêt / ambre brun / bordeaux
 // ─────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
 
-// ── Types ────────────────────────────────────────────────────────
+const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;1,9..144,300&family=DM+Sans:wght@300;400;500&display=swap');`;
 
-// Représente l'état du simulateur d'achat
+// ── Design tokens — modifier ici change tout le produit ──────────
+const T = {
+  bg:          "#FAF8F5",
+  surface:     "#FFFFFF",
+  border:      "#E8E4DF",
+  text1:       "#1C1917",
+  text2:       "#6B6560",
+  text3:       "#A09890",
+  accent:      "#2D6A4F",
+  accentLight: "#EAF3EE",
+  warn:        "#B45309",
+  warnLight:   "#FEF3C7",
+  danger:      "#9B1C1C",
+  dangerLight: "#FEF2F2",
+  idle:        "#A09890",
+};
+
 type AffordResult = "ok" | "tight" | "no" | null;
+type BudgetStatus = "idle" | "healthy" | "tight" | "deficit";
 
-// ── Helpers ──────────────────────────────────────────────────────
+type Suggestion = {
+  titre: string;
+  detail: string;
+  niveau: "info" | "warn" | "action";
+  icone: "clock" | "scissors" | "arrow" | "check";
+};
 
-/**
- * Formate un nombre en euros (style français).
- * Ex : 1500 → "1 500 €"
- */
 function formatEur(n: number): string {
-  return Math.round(n).toLocaleString("fr-FR") + " €";
+  return Math.round(n).toLocaleString("fr-FR") + " €";
 }
 
-/**
- * Parse une chaîne en nombre, retourne 0 si invalide.
- * Sécurise les inputs utilisateur avant tout calcul.
- */
 function parseNum(s: string): number {
   const n = parseFloat(s.replace(",", "."));
   return isNaN(n) || n < 0 ? 0 : n;
 }
 
-// ── Composant principal ──────────────────────────────────────────
+// ── Logique d'arbitrage — fonction pure, arbre de décision ───────
+function getArbitrages(p: {
+  affordResult: AffordResult; reste: number; montant: number;
+  nbMois: number; effortMensuel: number; margeApresEffort: number; vari: number;
+}): Suggestion[] {
+  const { affordResult, reste, montant, nbMois, effortMensuel, margeApresEffort, vari } = p;
+  if (affordResult === null) return [];
 
-export default function Page() {
+  if (affordResult === "ok") return [{
+    icone: "check",
+    titre: "Ton budget absorbe cet achat sereinement.",
+    detail: `Après effort d'épargne, il te restera ${formatEur(margeApresEffort)}/mois. Rien à ajuster.`,
+    niveau: "info",
+  }];
 
-  // ── État — Budget mensuel ──────────────────────────────────────
-  // Chaque champ est stocké en string (valeur brute du <input>)
-  // pour permettre la frappe libre, puis parsé au moment du calcul.
-
-  const [revenu, setRevenu] = useState("");
-  const [charges, setCharges] = useState("");
-  const [variable, setVariable] = useState("");
-
-  // ── État — Simulateur d'achat ──────────────────────────────────
-
-  const [achatMontant, setAchatMontant] = useState("");
-  const [achatMois, setAchatMois] = useState("3");
-
-  // ── Calculs dérivés ───────────────────────────────────────────
-  // Ces valeurs sont recalculées à chaque rendu — pas besoin de les
-  // stocker dans useState (elles dépendent déjà d'un état existant).
-
-  const rev = parseNum(revenu);
-  const chg = parseNum(charges);
-  const vari = parseNum(variable);
-
-  // Reste à dépenser = revenu - charges fixes - budget variable
-  const reste = rev - chg - vari;
-
-  // Taux d'utilisation du revenu (pour la barre de progression)
-  const tauxDepense = rev > 0 ? Math.min(((chg + vari) / rev) * 100, 100) : 0;
-
-  // ── Logique budget : quelle couleur/message afficher ? ─────────
-  // On distingue 3 états : pas encore rempli / sain / serré / déficit.
-
-  type BudgetStatus = "idle" | "healthy" | "tight" | "deficit";
-
-  function getBudgetStatus(): BudgetStatus {
-    if (rev === 0) return "idle";
-    if (reste >= rev * 0.2) return "healthy";  // > 20 % de marge → sain
-    if (reste >= 0) return "tight";             // marge positive mais faible
-    return "deficit";                           // dépenses > revenu
+  if (affordResult === "tight") {
+    const s: Suggestion[] = [];
+    const moisSupp = nbMois + 2;
+    const effortReduit = Math.round(montant / moisSupp);
+    s.push({ icone: "clock", niveau: "warn",
+      titre: `Décaler de 2 mois`,
+      detail: `Sur ${moisSupp} mois, l'effort passe à ${formatEur(effortReduit)}/mois. Ta marge remonte à ${formatEur(reste - effortReduit)}.`,
+    });
+    if (vari > 0) {
+      const cut = Math.round(vari * 0.15);
+      s.push({ icone: "scissors", niveau: "action",
+        titre: `Réduire le variable de 15 %`,
+        detail: `${formatEur(cut)}/mois économisés suffisent (marge finale : ${formatEur(margeApresEffort + cut)}).`,
+      });
+    }
+    return s;
   }
 
-  const budgetStatus = getBudgetStatus();
+  const s: Suggestion[] = [];
+  const moisNec = reste > 0 ? Math.ceil(montant / reste) : null;
+  if (moisNec && moisNec <= 36) s.push({ icone: "clock", niveau: "action",
+    titre: `Allonger à ${moisNec} mois`,
+    detail: `L'effort mensuel descend à ${formatEur(Math.round(montant / moisNec))} — exactement ton disponible actuel.`,
+  });
+  const montantMax = reste * nbMois;
+  if (montantMax > 0) s.push({ icone: "arrow", niveau: "warn",
+    titre: `Viser ${formatEur(montantMax)}`,
+    detail: `Maximum atteignable en ${nbMois} mois avec ${formatEur(reste)}/mois disponible.`,
+  });
+  if (vari > 0) {
+    const cut = Math.min(effortMensuel - reste, vari);
+    const pct = Math.round((cut / vari) * 100);
+    s.push({ icone: "scissors", niveau: "action",
+      titre: `Réduire le variable de ${pct} %`,
+      detail: `Couper ${formatEur(cut)}/mois sur tes dépenses variables comblerait exactement le manque.`,
+    });
+  }
+  return s;
+}
 
-  // Couleur de la valeur "Reste à dépenser" selon l'état
-  const resteColor: Record<BudgetStatus, string> = {
-    idle: "text-zinc-400",
-    healthy: "text-emerald-400",
-    tight: "text-amber-400",
-    deficit: "text-red-400",
-  };
+function Icone({ nom, color }: { nom: Suggestion["icone"]; color: string }) {
+  const p = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.75, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (nom === "clock")    return <svg {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+  if (nom === "scissors") return <svg {...p}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>;
+  if (nom === "arrow")    return <svg {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
+  return <svg {...p}><polyline points="20 6 9 17 4 12"/></svg>;
+}
 
-  // Message contextuel sous le montant restant
-  const resteMessage: Record<BudgetStatus, string> = {
-    idle: "Remplis tes revenus et dépenses ci-dessus.",
-    healthy: "Ta marge est confortable. Bien joué.",
-    tight: "Budget serré — surveille tes dépenses variables.",
-    deficit: "Tes dépenses dépassent tes revenus ce mois-ci.",
-  };
+export default function Page() {
+  const [revenu,       setRevenu]       = useState("");
+  const [charges,      setCharges]      = useState("");
+  const [variable,     setVariable]     = useState("");
+  const [achatMontant, setAchatMontant] = useState("");
+  const [achatMois,    setAchatMois]    = useState("3");
 
-  // Couleur de la barre de progression
-  const barColor: Record<BudgetStatus, string> = {
-    idle: "bg-zinc-600",
-    healthy: "bg-emerald-500",
-    tight: "bg-amber-400",
-    deficit: "bg-red-500",
-  };
+  const rev  = parseNum(revenu);
+  const chg  = parseNum(charges);
+  const vari = parseNum(variable);
 
-  // ── Logique simulateur d'achat ────────────────────────────────
-
-  const montant = parseNum(achatMontant);
-  const nbMois = parseInt(achatMois) || 1;
-
-  // Effort mensuel nécessaire pour atteindre l'objectif
-  const effortMensuel = nbMois > 0 ? Math.round(montant / nbMois) : montant;
-
-  // Marge restante après l'effort d'épargne
+  const reste            = rev - chg - vari;
+  const tauxDepense      = rev > 0 ? Math.min(((chg + vari) / rev) * 100, 100) : 0;
+  const montant          = parseNum(achatMontant);
+  const nbMois           = parseInt(achatMois) || 1;
+  const effortMensuel    = nbMois > 0 ? Math.round(montant / nbMois) : montant;
   const margeApresEffort = reste - effortMensuel;
+
+  function getBudgetStatus(): BudgetStatus {
+    if (rev === 0)          return "idle";
+    if (reste >= rev * 0.2) return "healthy";
+    if (reste >= 0)         return "tight";
+    return "deficit";
+  }
+  const budgetStatus = getBudgetStatus();
 
   function getAffordResult(): AffordResult {
     if (montant <= 0 || rev === 0) return null;
-    if (margeApresEffort >= 0) return "ok";
+    if (margeApresEffort >= 0)     return "ok";
     if (Math.abs(margeApresEffort) < reste * 0.3) return "tight";
     return "no";
   }
-
   const affordResult = getAffordResult();
+  const arbitrages   = getArbitrages({ affordResult, reste, montant, nbMois, effortMensuel, margeApresEffort, vari });
 
-  // Textes du simulateur selon le résultat
-  const affordConfig = {
-    ok: {
-      label: "Oui, c'est faisable.",
-      detail: `En mettant de côté ${formatEur(effortMensuel)}/mois pendant ${nbMois} mois, il te restera ${formatEur(margeApresEffort)} disponible chaque mois.`,
-      border: "border-emerald-800",
-      bg: "bg-emerald-950",
-      titleColor: "text-emerald-400",
-      textColor: "text-emerald-300",
-    },
-    tight: {
-      label: "C'est serré, mais possible.",
-      detail: `Il te faudrait économiser ${formatEur(effortMensuel)}/mois. Ta marge serait réduite à ${formatEur(margeApresEffort)}. Envisage de réduire quelques postes variables.`,
-      border: "border-amber-800",
-      bg: "bg-amber-950",
-      titleColor: "text-amber-400",
-      textColor: "text-amber-300",
-    },
-    no: {
-      label: "Pas dans ces conditions.",
-      detail: `Il te faudrait ${formatEur(effortMensuel)}/mois, mais ton disponible actuel est de ${formatEur(reste)}. Allonge la durée ou ajuste le montant.`,
-      border: "border-red-900",
-      bg: "bg-red-950",
-      titleColor: "text-red-400",
-      textColor: "text-red-300",
-    },
+  // Tokens visuels par statut budget
+  const statusTokens: Record<BudgetStatus, { color: string; bg: string; label: string; bar: string }> = {
+    idle:    { color: T.idle,   bg: T.surface,     label: "Remplis tes revenus ci-dessus.",          bar: T.border },
+    healthy: { color: T.accent, bg: T.accentLight, label: "Ta marge est confortable.",               bar: T.accent },
+    tight:   { color: T.warn,   bg: T.warnLight,   label: "Budget serré — surveille tes variables.", bar: T.warn   },
+    deficit: { color: T.danger, bg: T.dangerLight, label: "Dépenses supérieures au revenu.",         bar: T.danger },
+  };
+  const tok = statusTokens[budgetStatus];
+
+  // Tokens visuels par verdict simulateur
+  const affordTokens = {
+    ok:    { color: T.accent, bg: T.accentLight, border: "#86EFAC",
+             verdict: "Oui, c'est faisable.",
+             detail:  `En épargnant ${formatEur(effortMensuel)}/mois pendant ${nbMois} mois, il te restera ${formatEur(margeApresEffort)} disponible.` },
+    tight: { color: T.warn,  bg: T.warnLight,   border: "#FCD34D",
+             verdict: "C'est serré, mais possible.",
+             detail:  `L'effort requis est ${formatEur(effortMensuel)}/mois. Ta marge serait réduite à ${formatEur(margeApresEffort)}.` },
+    no:    { color: T.danger, bg: T.dangerLight, border: "#FCA5A5",
+             verdict: "Pas dans ces conditions.",
+             detail:  `Il te faudrait ${formatEur(effortMensuel)}/mois, mais ton disponible est ${formatEur(reste)}.` },
   };
 
-  // ── Rendu ─────────────────────────────────────────────────────
-
   return (
-    // Fond sombre — toute la page
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 px-4 py-12">
+    <>
+      <style>{FONT_IMPORT}{`
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+      `}</style>
 
-      {/* Conteneur centré — largeur max pour la lisibilité */}
-      <div className="max-w-md mx-auto space-y-6">
+      <main style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text1 }}>
 
-        {/* ── En-tête ─────────────────────────────────────────── */}
-        <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Momentum
-          </h1>
-          <p className="text-sm text-zinc-500 mt-1 font-light">
-            Planification budgétaire · MVP
-          </p>
+        {/* ── En-tête ──────────────────────────────────────────── */}
+        <header style={{ borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <div style={{ maxWidth: 520, margin: "0 auto", padding: "18px 24px", display: "flex", alignItems: "center", gap: 10 }}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <path d="M3 19V3l8 8 8-8v16" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600, color: T.text1, letterSpacing: "-0.3px" }}>
+              Momentum
+            </span>
+            <span style={{ fontSize: 12, color: T.text3, fontWeight: 300, marginLeft: 2 }}>plan with clarity</span>
+          </div>
         </header>
 
-        {/* ══════════════════════════════════════════════════════ */}
-        {/* SECTION 1 — BUDGET MENSUEL                            */}
-        {/* ══════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-500 mb-4">
-            Budget mensuel
-          </h2>
+        <div style={{ maxWidth: 520, margin: "0 auto", padding: "32px 24px 64px" }}>
 
-          {/* Carte principale — 3 champs de saisie */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+          {/* ── SECTION 1 — BUDGET MENSUEL ────────────────────── */}
+          <SectionLabel>Budget mensuel</SectionLabel>
 
-            {/* Champ : Revenu mensuel */}
-            <InputField
-              label="Revenu mensuel"
-              value={revenu}
-              onChange={setRevenu}
-              placeholder="ex. 2 500"
-              hint="net après impôts"
-            />
+          <Card>
+            <InputRow label="Revenu mensuel"  hint="net après impôts"      value={revenu}   onChange={setRevenu}   placeholder="2 500" />
+            <Divider />
+            <InputRow label="Charges fixes"   hint="loyer, assurances…"    value={charges}  onChange={setCharges}  placeholder="900" />
+            <Divider />
+            <InputRow label="Budget variable" hint="courses, restaurants…" value={variable} onChange={setVariable} placeholder="400" />
+          </Card>
 
-            {/* Séparateur visuel */}
-            <div className="border-t border-zinc-800" />
-
-            {/* Champ : Charges fixes */}
-            <InputField
-              label="Charges fixes"
-              value={charges}
-              onChange={setCharges}
-              placeholder="ex. 900"
-              hint="loyer, assurances, abonnements"
-            />
-
-            {/* Champ : Budget variable */}
-            <InputField
-              label="Budget variable"
-              value={variable}
-              onChange={setVariable}
-              placeholder="ex. 400"
-              hint="courses, restaurants, loisirs"
-            />
-          </div>
-
-          {/* ── Résultat : Reste à dépenser ───────────────────── */}
-          {/* Toujours visible, change de couleur selon le statut  */}
-          <div className="mt-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-
-            {/* Label discret */}
-            <p className="text-xs text-zinc-500 mb-1 font-light">
+          {/* Hero — Reste à dépenser */}
+          <div style={{ background: tok.bg, border: `1px solid ${T.border}`, borderRadius: 20, padding: "28px 24px 22px", marginTop: 12 }}>
+            <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: T.text3, marginBottom: 8 }}>
               Reste à dépenser
             </p>
-
-            {/* Montant — grande typo, couleur conditionnelle */}
-            <p className={`text-4xl font-semibold tabular-nums ${resteColor[budgetStatus]}`}>
+            <p style={{ fontFamily: "'Fraunces', serif", fontSize: 52, fontWeight: 600, lineHeight: 1, color: rev > 0 ? tok.color : T.text3, letterSpacing: "-1px", marginBottom: 8 }}>
               {rev > 0 ? formatEur(reste) : "—"}
             </p>
-
-            {/* Message contextuel */}
-            <p className="text-xs text-zinc-500 mt-2 font-light">
-              {resteMessage[budgetStatus]}
-            </p>
-
-            {/* Barre de progression — taux d'utilisation du revenu */}
+            <p style={{ fontSize: 13, color: T.text2, fontWeight: 300, marginBottom: rev > 0 ? 20 : 0 }}>{tok.label}</p>
             {rev > 0 && (
-              <div className="mt-4">
-                <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${barColor[budgetStatus]}`}
-                    style={{ width: `${tauxDepense}%` }}
-                  />
+              <div>
+                <div style={{ height: 3, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${tauxDepense}%`, background: tok.bar, borderRadius: 2, transition: "width 0.4s ease" }} />
                 </div>
-                <p className="text-xs text-zinc-600 mt-1 text-right">
-                  {Math.round(tauxDepense)} % du revenu utilisé
-                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: T.text3 }}>0 €</span>
+                  <span style={{ fontSize: 11, color: T.text3 }}>{Math.round(tauxDepense)} % utilisé</span>
+                  <span style={{ fontSize: 11, color: T.text3 }}>{formatEur(rev)}</span>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Résumé rapide — 2 métriques côte à côte */}
           {rev > 0 && (
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <MetricTile label="Charges fixes" value={formatEur(chg)} />
-              <MetricTile label="Budget variable" value={formatEur(vari)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+              <SmallTile label="Charges fixes"   value={formatEur(chg)}  />
+              <SmallTile label="Budget variable" value={formatEur(vari)} />
             </div>
           )}
-        </section>
 
-        {/* ══════════════════════════════════════════════════════ */}
-        {/* SECTION 2 — PUIS-JE ME LE PERMETTRE ?                */}
-        {/* ══════════════════════════════════════════════════════ */}
-        <section className="pt-2">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-zinc-500 mb-4">
-            Puis-je me le permettre ?
-          </h2>
+          {/* ── SECTION 2 — PUIS-JE ME LE PERMETTRE ? ─────────── */}
+          <SectionLabel style={{ marginTop: 40 }}>Puis-je me le permettre ?</SectionLabel>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-
-            {/* Avertissement si le budget n'est pas encore rempli */}
+          <Card>
             {rev === 0 && (
-              <p className="text-xs text-zinc-500 font-light">
+              <p style={{ fontSize: 13, color: T.text3, fontWeight: 300, padding: "14px 20px 6px" }}>
                 Remplis d'abord ton budget mensuel pour activer le simulateur.
               </p>
             )}
-
-            {/* Champ : montant de l'achat */}
-            <InputField
-              label="Montant du projet"
-              value={achatMontant}
-              onChange={setAchatMontant}
-              placeholder="ex. 1 200"
-              hint="achat, voyage, équipement…"
-              disabled={rev === 0}
-            />
-
-            {/* Sélecteur : durée d'épargne */}
-            <div className="flex items-center justify-between">
+            <InputRow label="Montant du projet" hint="achat, voyage, équipement…" value={achatMontant} onChange={setAchatMontant} placeholder="1 200" disabled={rev === 0} />
+            <Divider />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px" }}>
               <div>
-                <p className="text-sm text-zinc-300">Durée pour économiser</p>
-                <p className="text-xs text-zinc-600 mt-0.5">en mois</p>
+                <p style={{ fontSize: 14, color: T.text1 }}>Durée pour économiser</p>
+                <p style={{ fontSize: 11, color: T.text3, marginTop: 2, fontWeight: 300 }}>en mois</p>
               </div>
-              <select
-                value={achatMois}
-                onChange={(e) => setAchatMois(e.target.value)}
-                disabled={rev === 0}
-                className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-zinc-500 disabled:opacity-30"
-              >
-                {[1, 2, 3, 6, 12, 24].map((m) => (
-                  <option key={m} value={m}>
-                    {m} mois
-                  </option>
-                ))}
+              <select value={achatMois} onChange={e => setAchatMois(e.target.value)} disabled={rev === 0}
+                style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 14, color: T.text1, fontFamily: "'DM Sans', sans-serif", opacity: rev === 0 ? 0.4 : 1, outline: "none", cursor: rev === 0 ? "not-allowed" : "pointer" }}>
+                {[1, 2, 3, 6, 12, 24].map(m => <option key={m} value={m}>{m} mois</option>)}
               </select>
             </div>
-
-            {/* Effort mensuel calculé — affiché si montant rempli */}
             {montant > 0 && rev > 0 && (
-              <div className="bg-zinc-800 rounded-xl px-4 py-3 flex items-center justify-between">
-                <p className="text-xs text-zinc-400">Effort mensuel requis</p>
-                <p className="text-sm font-medium text-zinc-200 tabular-nums">
-                  {formatEur(effortMensuel)} / mois
-                </p>
+              <div style={{ margin: "0 20px 14px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12, color: T.text3 }}>Effort mensuel requis</span>
+                <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600, color: T.text1 }}>
+                  {formatEur(effortMensuel)}<span style={{ fontSize: 12, fontFamily: "'DM Sans', sans-serif", fontWeight: 300, color: T.text2 }}> /mois</span>
+                </span>
               </div>
             )}
-          </div>
+          </Card>
 
-          {/* ── Verdict ─────────────────────────────────────────── */}
-          {/* S'affiche uniquement quand le calcul peut se faire    */}
           {affordResult && (() => {
-            const cfg = affordConfig[affordResult];
+            const cfg = affordTokens[affordResult];
             return (
-              <div className={`mt-3 border ${cfg.border} ${cfg.bg} rounded-2xl p-5`}>
-                <p className={`text-lg font-semibold ${cfg.titleColor}`}>
-                  {cfg.label}
-                </p>
-                <p className={`text-sm font-light mt-1 leading-relaxed ${cfg.textColor}`}>
-                  {cfg.detail}
-                </p>
+              <div style={{ marginTop: 10, background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 16, padding: 20 }}>
+                <p style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: cfg.color, marginBottom: 6 }}>{cfg.verdict}</p>
+                <p style={{ fontSize: 13, color: T.text2, fontWeight: 300, lineHeight: 1.6 }}>{cfg.detail}</p>
               </div>
             );
           })()}
-        </section>
 
-        {/* Footer discret */}
-        <footer className="pt-4 text-center">
-          <p className="text-xs text-zinc-700">Momentum · MVP · Données locales uniquement</p>
-        </footer>
+          {/* ── SECTION 3 — ARBITRAGES POSSIBLES ─────────────── */}
+          {arbitrages.length > 0 && (
+            <>
+              <SectionLabel style={{ marginTop: 40 }}>Arbitrages possibles</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {arbitrages.map((s, i) => {
+                  const iconeColor = s.niveau === "warn" ? T.warn : T.accent;
+                  const iconeBg    = s.niveau === "warn" ? T.warnLight : T.accentLight;
+                  return (
+                    <div key={i} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "flex-start", gap: 14 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", background: iconeBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                        <Icone nom={s.icone} color={iconeColor} />
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 14, fontWeight: 500, color: T.text1, marginBottom: 3 }}>{s.titre}</p>
+                        <p style={{ fontSize: 12, color: T.text2, fontWeight: 300, lineHeight: 1.6 }}>{s.detail}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 14, padding: "13px 16px", background: T.accentLight, borderRadius: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                <Icone nom="check" color={T.accent} />
+                <p style={{ fontSize: 12, color: T.accent, fontWeight: 400, lineHeight: 1.5 }}>
+                  Ces pistes sont basées sur ton budget réel. Tu as la clarté pour décider.
+                </p>
+              </div>
+            </>
+          )}
 
-      </div>
-    </main>
+          <footer style={{ marginTop: 48, textAlign: "center" }}>
+            <p style={{ fontSize: 11, color: T.text3, fontWeight: 300 }}>
+              Momentum · Données locales uniquement · Aucune banque connectée
+            </p>
+          </footer>
+        </div>
+      </main>
+    </>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// COMPOSANT : InputField
-// Champ de saisie réutilisable avec label, hint et suffix "€".
-// Séparé en composant pour éviter la répétition et rester lisible.
-// ─────────────────────────────────────────────────────────────────
+// ── Composants UI ─────────────────────────────────────────────────
 
-type InputFieldProps = {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  hint?: string;
-  disabled?: boolean;
+function SectionLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.09em", textTransform: "uppercase", color: T.text3, marginBottom: 12, ...style }}>
+      {children}
+    </p>
+  );
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ background: "#FFFFFF", border: `1px solid ${T.border}`, borderRadius: 20, display: "flex", flexDirection: "column" }}>
+      {children}
+    </div>
+  );
+}
+
+function Divider() {
+  return <div style={{ height: 1, background: T.border, margin: "0 20px" }} />;
+}
+
+type InputRowProps = {
+  label: string; hint?: string; value: string;
+  onChange: (v: string) => void; placeholder?: string; disabled?: boolean;
 };
 
-function InputField({ label, value, onChange, placeholder, hint, disabled }: InputFieldProps) {
+function InputRow({ label, hint, value, onChange, placeholder, disabled }: InputRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
-
-      {/* Partie gauche : label + hint */}
-      <div className="min-w-0">
-        <p className="text-sm text-zinc-300">{label}</p>
-        {hint && <p className="text-xs text-zinc-600 mt-0.5 font-light">{hint}</p>}
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", gap: 16, opacity: disabled ? 0.4 : 1 }}>
+      <div>
+        <p style={{ fontSize: 14, color: T.text1 }}>{label}</p>
+        {hint && <p style={{ fontSize: 11, color: T.text3, marginTop: 2, fontWeight: 300 }}>{hint}</p>}
       </div>
-
-      {/* Partie droite : input + symbole € */}
-      <div className="flex items-center gap-1 shrink-0">
-        <input
-          type="number"
-          min="0"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="
-            w-28 bg-zinc-800 border border-zinc-700 rounded-lg
-            px-3 py-2 text-right text-sm text-zinc-100
-            tabular-nums outline-none
-            focus:border-zinc-500
-            placeholder:text-zinc-600
-            disabled:opacity-30
-            [appearance:textfield]
-            [&::-webkit-outer-spin-button]:appearance-none
-            [&::-webkit-inner-spin-button]:appearance-none
-          "
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <input type="number" min="0" value={value} placeholder={placeholder} disabled={disabled}
+          onChange={e => onChange(e.target.value)}
+          onFocus={e => (e.target.style.borderColor = T.accent)}
+          onBlur={e  => (e.target.style.borderColor = T.border)}
+          style={{ width: 100, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontSize: 15, fontFamily: "'Fraunces', serif", color: T.text1, textAlign: "right", outline: "none", transition: "border-color 0.15s" }}
         />
-        <span className="text-zinc-500 text-sm">€</span>
+        <span style={{ fontSize: 13, color: T.text3 }}>€</span>
       </div>
-
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// COMPOSANT : MetricTile
-// Petite tuile de résumé pour afficher une valeur labellisée.
-// Utilisée pour le résumé "charges fixes / budget variable".
-// ─────────────────────────────────────────────────────────────────
-
-type MetricTileProps = {
-  label: string;
-  value: string;
-};
-
-function MetricTile({ label, value }: MetricTileProps) {
+function SmallTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
-      <p className="text-xs text-zinc-500 mb-1">{label}</p>
-      <p className="text-base font-medium text-zinc-200 tabular-nums">{value}</p>
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 16px" }}>
+      <p style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>{label}</p>
+      <p style={{ fontSize: 16, fontFamily: "'Fraunces', serif", fontWeight: 600, color: T.text1 }}>{value}</p>
     </div>
   );
 }
-

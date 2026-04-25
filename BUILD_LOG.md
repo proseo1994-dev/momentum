@@ -56,3 +56,17 @@ Learned:
 - First commit created
 - Connected project to GitHub
 - First remote push completed
+
+## Day 5
+
+Sprint: Visual Direction Exploration
+
+Built:
+- Tested a softer premium visual direction
+- Introduced calmer palette and editorial aesthetic
+- Explored brand atmosphere beyond functional MVP
+
+Decisions:
+- Keep serenity / premium direction
+- Push stronger product identity in next iteration
+- Current version = design exploration, not final UI
